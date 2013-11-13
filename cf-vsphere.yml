@@ -1,0 +1,432 @@
+---
+name: cf-vsphere
+director_uuid: 51b3fcf0-0170-46b8-be92-2d2698cce812 # get this from bosh status
+
+releases:
+- name: cf
+  version: 146
+
+compilation:
+  workers: 3
+  network: default
+  reuse_compilation_vms: true
+  cloud_properties:
+    ram: 2048
+    disk: 8096
+    cpu: 4
+
+update:
+  canaries: 1
+  canary_watch_time: 3000-90000
+  update_watch_time: 3000-90000
+  max_in_flight: 1
+
+networks:
+
+- name: default
+  subnets:
+  - range: 172.30.0.0/16
+    reserved:
+    - 172.30.0.2 - 172.30.0.100
+    - 172.30.1.1 - 172.30.1.254
+    static:
+    - 172.30.2.1 - 172.30.2.254
+    gateway: 172.30.0.1
+#    dns:
+#    - 172.30.0.100
+#    - 192.168.143.209
+#    - 192.168.200.19
+    cloud_properties:
+      name: dvCFPrivateNetworkGroup
+
+- name: network143
+  subnets:
+  - range: 192.168.143.0/24
+    reserved:
+    - 192.168.143.200 - 192.168.143.210
+    static:
+    - 192.168.143.211 - 192.168.143.230
+    gateway: 192.168.143.254
+    dns:
+    - 192.168.200.19
+    - 192.168.200.32
+    cloud_properties:
+      name: VM Network
+
+resource_pools:
+
+- name: small
+  network: default
+  size: 10
+  stemcell:
+    name: bosh-vsphere-esxi-ubuntu
+    version: 1154
+  cloud_properties:
+    ram: 1024
+    disk: 8192
+    cpu: 1
+  env:
+    bosh:
+      # passw0rd - password generated using mkpasswd -m sha-512
+      password: $6$4siy2vTkU1zK3R9$1xwGrM04db6YhUZwl07piYYP8WltjCgY0n6L9lfCpFkTSduJTls9piJxMAcHioAzRphCaF5USzUZPkerTDiQp0
+
+- name: medium
+  network: default
+  size: 2
+  stemcell:
+    name: bosh-vsphere-esxi-ubuntu
+    version: 1154
+  cloud_properties:
+    ram: 2048
+    disk: 16384
+    cpu: 2
+  env:
+    bosh:
+      # passw0rd - password generated using mkpasswd -m sha-512
+      password: $6$4siy2vTkU1zK3R9$1xwGrM04db6YhUZwl07piYYP8WltjCgY0n6L9lfCpFkTSduJTls9piJxMAcHioAzRphCaF5USzUZPkerTDiQp0
+
+
+- name: dea
+  network: default
+  size: 2
+  stemcell:
+    name: bosh-vsphere-esxi-ubuntu
+    version: 1154
+  cloud_properties:
+    ram: 4096
+    disk: 16384
+    cpu: 2
+  env:
+    bosh:
+      # passw0rd - password generated using mkpasswd -m sha-512
+      password: $6$4siy2vTkU1zK3R9$1xwGrM04db6YhUZwl07piYYP8WltjCgY0n6L9lfCpFkTSduJTls9piJxMAcHioAzRphCaF5USzUZPkerTDiQp0
+
+jobs:
+
+- name: debian_nfs_server
+  release: cf
+  template: debian_nfs_server
+  instances: 1
+  resource_pool: medium
+  persistent_disk: 51200
+  no_root_squash: true
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: syslog_aggregator
+  release: cf
+  template: syslog_aggregator
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: nats
+  release: cf
+  template: nats
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: collector
+  release: cf
+  template: collector
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: ccdb_ng
+  release: cf
+  template: postgres
+  instances: 1
+  resource_pool: small
+  persistent_disk: 8192
+  networks:
+  - name: default
+    default: [dns, gateway]
+  properties:
+    db: ccdb_ng
+
+- name: cloud_controller_ng
+  release: cf
+  template: cloud_controller_ng
+  instances: 1
+  resource_pool: medium
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: uaadb
+  db_scheme: postgresql
+  release: cf
+  template: postgres
+  instances: 1
+  resource_pool: small
+  persistent_disk: 8192
+  networks:
+  - name: default
+    default: [dns, gateway]
+  properties:
+    db: uaadb
+
+- name: uaa
+  release: cf
+  template: uaa
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: login
+  release: cf
+  template: login
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+
+- name: router
+  release: cf
+  template: gorouter
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+  - name: network143
+    static_ips:
+    - 192.168.143.211
+
+- name: health_manager_next
+  release: cf
+  template: health_manager_next
+  instances: 1
+  resource_pool: small
+  networks:
+  - name: default
+    default: [dns, gateway]
+
+- name: dea_next
+  release: cf
+  template: dea_next
+  instances: 2
+  resource_pool: dea
+  networks:
+  - name: default
+    dns:
+    - 172.30.0.100
+    - 192.168.200.19
+    gateway: 172.30.0.1
+  properties:
+    dea_next:
+      stacks:
+      - lucid64
+
+properties:
+
+  domain: talkweb.cf
+  system_domain: talkweb.cf
+  system_domain_organization: talkweb.cf
+  app_domains:
+    - talkweb.cf
+
+  networks:
+    apps: default
+    management: default
+
+  nats:
+    address: 0.nats.default.cf-vsphere.microbosh
+    port: 4222
+    user: nats
+    password: "passw0rd"
+    authorization_timeout: 5
+
+  router:
+    status:
+      port: 8080
+      user: gorouter
+      password: "passw0rd"
+
+  dea: &dea
+    max_memory: 16348
+    memory_mb: 16348
+    memory_overcommit_factor: 4
+    disk_mb: 16348
+    disk_overcommit_factor: 4
+    directory_server_protocol: http
+
+  dea_next: *dea
+
+  service_lifecycle:
+    serialization_data_server:
+    - 0.nats.default.cf-vsphere.microbosh
+
+  syslog_aggregator:
+    address: 0.syslog-aggregator.default.cf-vsphere.microbosh
+    port: 54321
+
+  serialization_data_server:
+    port: 8080
+    logging_level: debug
+    upload_token: passw0rd
+    upload_timeout: 10
+
+  collector:
+    deployment_name: cf
+    use_tsdb: false
+    use_aws_cloudwatch: false
+    use_datadog: false
+
+  nfs_server:
+    address: 0.debian-nfs-server.default.cf-vsphere.microbosh
+    network: "172.30.0.0/16"
+
+  ccdb: &ccdb
+    db_scheme: postgres
+    address: 0.ccdb-ng.default.cf-vsphere.microbosh
+    port: 5524
+    roles:
+      - tag: admin
+        name: ccadmin
+        password: "passw0rd"
+    databases:
+      - tag: cc
+        name: ccdb
+        citext: true
+
+  ccdb_ng: *ccdb
+
+  uaadb: 
+    db_scheme: postgresql
+    address: 0.uaadb.default.cf-vsphere.microbosh
+    port: 5524
+    roles:
+      - tag: admin
+        name: uaaadmin
+        password: "passw0rd"
+    databases:
+      - tag: uaa
+        name: uaadb
+        citext: true
+
+  cc_api_version: v2
+
+  cc: &cc
+    logging_level: debug
+    external_host: api
+    srv_api_uri: http://api.talkweb.cf
+    cc_partition: default
+    db_encryption_key: "passw0rd"
+    bootstrap_admin_email: admin@talkweb.cf
+    bulk_api_password: "passw0rd"
+    uaa_resource_id: cloud_controller
+    staging_upload_user: uploaduser
+    staging_upload_password: passw0rd
+
+  ccng: *cc
+
+  login:
+    protocol: http
+    port: 80
+    links:
+      home: http://console.talkweb.cf
+      passwd: http://console.talkweb.cf/password_resets/new
+      signup: http://console.talkweb.cf/register
+
+  uaa:
+    url: http://uaa.talkweb.cf
+    port: 80
+    no_ssl: true
+    spring_profiles: postgresql
+    catalina_opts: -Xmx768m -XX:MaxPermSize=256m
+    resource_id: account_manager
+    jwt:
+      signing_key: |
+        -----BEGIN RSA PRIVATE KEY-----
+        MIICXAIBAAKBgQDHFr+KICms+tuT1OXJwhCUmR2dKVy7psa8xzElSyzqx7oJyfJ1
+        JZyOzToj9T5SfTIq396agbHJWVfYphNahvZ/7uMXqHxf+ZH9BL1gk9Y6kCnbM5R6
+        0gfwjyW1/dQPjOzn9N394zd2FJoFHwdq9Qs0wBugspULZVNRxq7veq/fzwIDAQAB
+        AoGBAJ8dRTQFhIllbHx4GLbpTQsWXJ6w4hZvskJKCLM/o8R4n+0W45pQ1xEiYKdA
+        Z/DRcnjltylRImBD8XuLL8iYOQSZXNMb1h3g5/UGbUXLmCgQLOUUlnYt34QOQm+0
+        KvUqfMSFBbKMsYBAoQmNdTHBaz3dZa8ON9hh/f5TT8u0OWNRAkEA5opzsIXv+52J
+        duc1VGyX3SwlxiE2dStW8wZqGiuLH142n6MKnkLU4ctNLiclw6BZePXFZYIK+AkE
+        xQ+k16je5QJBAN0TIKMPWIbbHVr5rkdUqOyezlFFWYOwnMmw/BKa1d3zp54VP/P8
+        +5aQ2d4sMoKEOfdWH7UqMe3FszfYFvSu5KMCQFMYeFaaEEP7Jn8rGzfQ5HQd44ek
+        lQJqmq6CE2BXbY/i34FuvPcKU70HEEygY6Y9d8J3o6zQ0K9SYNu+pcXt4lkCQA3h
+        jJQQe5uEGJTExqed7jllQ0khFJzLMx0K6tj0NeeIzAaGCQz13oo2sCdeGRHO4aDh
+        HH6Qlq/6UOV5wP8+GAcCQFgRCcB+hrje8hfEEefHcFpyKH+5g1Eu1k0mLrxK2zd+
+        4SlotYRHgPCEubokb2S1zfZDWIXW3HmggnGgM949TlY=
+        -----END RSA PRIVATE KEY-----
+      verification_key: |
+        -----BEGIN PUBLIC KEY-----
+        MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDHFr+KICms+tuT1OXJwhCUmR2d
+        KVy7psa8xzElSyzqx7oJyfJ1JZyOzToj9T5SfTIq396agbHJWVfYphNahvZ/7uMX
+        qHxf+ZH9BL1gk9Y6kCnbM5R60gfwjyW1/dQPjOzn9N394zd2FJoFHwdq9Qs0wBug
+        spULZVNRxq7veq/fzwIDAQAB
+        -----END PUBLIC KEY-----
+    cc:
+      client_secret: "passw0rd"
+    admin:
+      client_secret: "passw0rd"
+    batch:
+      username: batchuser
+      password: passw0rd
+    client:
+      autoapprove:
+        - cf
+        - my
+        - micro
+        - support-signon
+        - login
+    clients:
+      login:
+        override: true
+        scope: openid
+        authorities: oauth.login
+        secret: passw0rd
+        authorized-grant-types: authorization_code,client_credentials,refresh_token
+        redirect-uri: http://login.talkweb.cf
+      support-services:
+        scope: scim.write,scim.read,openid,cloud_controller.read,cloud_controller.write
+        secret: passw0rd
+        authorized-grant-types: authorization_code,client_credentials
+        redirect-uri: http://support-signon.talkweb.cf
+        authorities: portal.users.read
+        access-token-validity: 1209600
+        refresh-token-validity: 1209600
+      oauth2service:
+        secret: passw0rd
+        scope: openid,cloud_controller.read,cloud_controller.write
+        authorities: uaa.resource,oauth.service,clients.read,clients.write,clients.secret
+        authorized-grant-types: client_credentials,implicit
+        redirect-uri: http://rewritten-later.cloudfoundry.com/whatever
+        override: true
+        autoapprove: true
+      cf:
+        override: true
+        authorized-grant-types: password,implicit,refresh_token
+        authorities: uaa.none
+        scope: cloud_controller.read,cloud_controller.write,openid,password.write,cloud_controller.admin,scim.read,scim.write
+        access-token-validity: 7200
+        refresh-token-validity: 1209600
+      servicesmgmt:
+        override: true
+        secret: passw0rd
+        scope: openid,cloud_controller.read,cloud_controller.write
+        authorities: uaa.resource,oauth.service,clients.read,clients.write,clients.secret
+        authorized-grant-types: authorization_code,client_credentials,password,implicit
+        redirect-uri: http://servicesmgmt.yourdomain.com/auth/cloudfoundry/callback
+        autoapprove: true
+    scim:
+      users:
+      - admin|passw0rd|scim.write,scim.read,openid,cloud_controller.admin
+      - services|passw0rd|scim.write,scim.read,openid,cloud_controller.admin
